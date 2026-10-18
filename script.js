@@ -17,6 +17,7 @@ let notes = [];
 let audioCtx = null;
 let bgmSource = null;
 let audioBuffer = null;
+let gainNode = null;
 let startTime = 0;
 
 // DOM 元素
@@ -26,13 +27,25 @@ const judgmentEl = document.getElementById('judgment');
 const startBtn = document.getElementById('start-btn');
 const audioUpload = document.getElementById('audio-upload');
 
+// 初始化 Web Audio API 與音量節點
+function initAudio() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    gainNode = audioCtx.createGain();
+    gainNode.connect(audioCtx.destination);
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+}
+
 // 檔案上傳監聽
 audioUpload.addEventListener('change', async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   
+  initAudio();
   const arrayBuffer = await file.arrayBuffer();
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
   alert('音樂載入成功！點擊「開始遊戲」即可遊玩。');
 });
@@ -42,10 +55,9 @@ startBtn.addEventListener('click', () => {
 });
 
 function startGame() {
-  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  if (audioCtx.state === 'suspended') audioCtx.resume();
+  initAudio();
 
-  // 若未上傳音樂，產生簡單的內建節奏音軌
+  // 若未上傳音樂，產生預設測試音訊
   if (!audioBuffer) {
     createDefaultAudioBuffer();
   }
@@ -56,13 +68,15 @@ function startGame() {
   notes = [];
   updateHUD();
 
-  // 產生示範譜面 (每 0.5 秒掉落一個音符)
+  // 根據音樂長度密集生成音符（每 0.35 秒一個，確保落鍵豐富）
   generateBeatmap();
 
   if (bgmSource) bgmSource.stop();
   bgmSource = audioCtx.createBufferSource();
   bgmSource.buffer = audioBuffer;
-  bgmSource.connect(audioCtx.destination);
+  
+  // 連接音量控制節點
+  bgmSource.connect(gainNode);
   bgmSource.start(0);
 
   startTime = audioCtx.currentTime;
@@ -71,14 +85,15 @@ function startGame() {
   requestAnimationFrame(gameLoop);
 }
 
-// 產生測試譜面
+// 生成豐富的音符譜面
 function generateBeatmap() {
   const duration = audioBuffer.duration;
-  for (let t = 1.0; t < duration - 1; t += 0.5) {
+  // 從第 1 秒開始，每隔 0.35 秒隨機生成一個落鍵，確保數量充足
+  for (let t = 1.0; t < duration - 1; t += 0.35) {
     const col = Math.floor(Math.random() * COLS);
     notes.push({
       col: col,
-      time: t, // 目標擊打時間 (秒)
+      time: t, 
       hit: false
     });
   }
@@ -87,12 +102,19 @@ function generateBeatmap() {
 // 產生內建音訊
 function createDefaultAudioBuffer() {
   const sampleRate = 44100;
-  const duration = 10; // 10秒測試音
+  const duration = 15; 
   audioBuffer = audioCtx.createBuffer(1, sampleRate * duration, sampleRate);
   const data = audioBuffer.getChannelData(0);
   for (let i = 0; i < audioBuffer.length; i++) {
     const t = i / sampleRate;
-    data[i] = Math.sin(2 * Math.PI * 440 * t) * Math.exp(- (t % 1) * 3) * 0.1;
+    data[i] = Math.sin(2 * Math.PI * 440 * t) * Math.exp(- (t % 0.5) * 4) * 0.1;
+  }
+}
+
+// 調整音量大小 (接收來自滑桿的值 0 ~ 1)
+function setVolume(val) {
+  if (gainNode) {
+    gainNode.gain.setValueAtTime(val, audioCtx ? audioCtx.currentTime : 0);
   }
 }
 
@@ -106,9 +128,8 @@ window.addEventListener('keydown', (e) => {
 
 function checkHit(col) {
   const currentTime = audioCtx.currentTime - startTime;
-  const threshold = 0.15; // 判定範圍 (秒)
+  const threshold = 0.18; // 判定範圍 (秒)
 
-  // 尋找該軌道最接近判定線的未擊打音符
   let closestNote = null;
   let minDiff = 999;
 
@@ -124,7 +145,7 @@ function checkHit(col) {
 
   if (closestNote && minDiff < threshold) {
     closestNote.hit = true;
-    if (minDiff < 0.06) {
+    if (minDiff < 0.08) {
       showJudgment('PERFECT', 'jud-perfect');
       score += 300;
       combo += 1;
@@ -134,7 +155,6 @@ function checkHit(col) {
       combo += 1;
     }
   } else {
-    // 空按或按錯
     showJudgment('MISS', 'jud-miss');
     combo = 0;
   }
@@ -157,16 +177,15 @@ function gameLoop() {
 
   const currentTime = audioCtx.currentTime - startTime;
 
-  // 清除畫布
   ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-  // 繪製 4 條軌道背景
+  // 繪製軌道
   for (let i = 0; i < COLS; i++) {
     ctx.fillStyle = '#1e293b';
     ctx.fillRect(i * COL_WIDTH + 20, 0, COL_WIDTH - 4, CANVAS_HEIGHT);
   }
 
-  // 繪製判定線
+  // 判定線
   ctx.strokeStyle = '#38bdf8';
   ctx.lineWidth = 3;
   ctx.beginPath();
@@ -174,14 +193,14 @@ function gameLoop() {
   ctx.lineTo(20 + COLS * COL_WIDTH, JUDGE_LINE_Y);
   ctx.stroke();
 
-  // 繪製按鍵提示字母於判定線下方
+  // 鍵位提示
   ctx.fillStyle = '#64748b';
   ctx.font = 'bold 16px Outfit';
   for (let i = 0; i < COLS; i++) {
     ctx.fillText(keyNames[i], i * COL_WIDTH + 58, JUDGE_LINE_Y + 30);
   }
 
-  // 渲染與更新音符位置 (速度: 300 像素/秒)
+  // 渲染音符 (速度: 300 像素/秒)
   const speed = 300; 
   for (let note of notes) {
     if (note.hit) continue;
@@ -189,7 +208,6 @@ function gameLoop() {
     const timeDiff = note.time - currentTime;
     const y = JUDGE_LINE_Y - (timeDiff * speed);
 
-    // 若音符過期未打 -> Miss
     if (y < -30) {
       note.hit = true;
       showJudgment('MISS', 'jud-miss');
@@ -198,12 +216,10 @@ function gameLoop() {
       continue;
     }
 
-    // 繪製幾何音符
     ctx.fillStyle = '#38bdf8';
     ctx.fillRect(note.col * COL_WIDTH + 25, y, COL_WIDTH - 14, 16);
   }
 
-  // 檢查音樂是否結束
   if (audioBuffer && currentTime > audioBuffer.duration) {
     isPlaying = false;
     alert(`遊戲結束！最終得分：${score}`);
