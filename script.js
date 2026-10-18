@@ -1,174 +1,214 @@
-// Web Audio API 上下文與合成器設定
-let audioCtx = null;
-let analyser = null;
-let masterGain = null;
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
 
-// 音軌狀態管理
-const activeNodes = {};
+const COLS = 4;
+const COL_WIDTH = 90;
+const CANVAS_WIDTH = canvas.width;
+const CANVAS_HEIGHT = canvas.height;
+const JUDGE_LINE_Y = 500;
+
+const keysMap = { 'D': 0, 'F': 1, 'J': 2, 'K': 3 };
+const keyNames = ['D', 'F', 'J', 'K'];
+
+let score = 0;
 let combo = 0;
-let hype = 0;
+let isPlaying = false;
+let notes = [];
+let audioCtx = null;
+let bgmSource = null;
+let audioBuffer = null;
+let startTime = 0;
 
-// 定義 8-Bit 聲響 (音高與波形)
-const trackConfigs = {
-  'A': { type: 'noise', freq: 100, role: 'Drums' },
-  'S': { type: 'sawtooth', freq: 110, role: 'Bass' },   // A2 鍵
-  'D': { type: 'square', freq: 329.63, role: 'Chords' }, // E4 鍵
-  'F': { type: 'triangle', freq: 523.25, role: 'Lead' }   // C5 鍵
-};
+// DOM 元素
+const scoreEl = document.getElementById('score');
+const comboEl = document.getElementById('combo');
+const judgmentEl = document.getElementById('judgment');
+const startBtn = document.getElementById('start-btn');
+const audioUpload = document.getElementById('audio-upload');
 
-// 初始化 Web Audio API
-function initAudio() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 64;
-    
-    masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.3; // 避免聲音過大
-    
-    masterGain.connect(analyser);
-    analyser.connect(audioCtx.destination);
-  }
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
-  }
-}
-
-// 播放 8-Bit 晶片聲音 (按壓觸發)
-function startSound(key) {
-  if (!trackConfigs[key] || activeNodes[key]) return;
-  initAudio();
-
-  const config = trackConfigs[key];
-  const now = audioCtx.currentTime;
-
-  if (config.type === 'noise') {
-    // 合成 8-Bit 小鼓/雜訊鼓點
-    const bufferSize = audioCtx.sampleRate * 0.1;
-    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
-    const noise = audioCtx.createBufferSource();
-    noise.buffer = buffer;
-    
-    const noiseFilter = audioCtx.createBiquadFilter();
-    noiseFilter.type = 'highpass';
-    noiseFilter.frequency.value = 1000;
-    
-    const gainNode = audioCtx.createGain();
-    gainNode.gain.setValueAtTime(0.8, now);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-
-    noise.connect(noiseFilter);
-    noiseFilter.connect(gainNode);
-    gainNode.connect(masterGain);
-    
-    noise.start(now);
-    activeNodes[key] = { stop: () => noise.stop() };
-  } else {
-    // 振盪器波形 (Bass, Chords, Lead)
-    const osc = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-
-    osc.type = config.type;
-    osc.frequency.setValueAtTime(config.freq, now);
-
-    gainNode.gain.setValueAtTime(0, now);
-    gainNode.gain.linearRampToValueAtTime(0.5, now + 0.02);
-
-    osc.connect(gainNode);
-    gainNode.connect(masterGain);
-
-    osc.start(now);
-    activeNodes[key] = { osc, gainNode };
-  }
-
-  updateHUD(true);
-}
-
-// 停止聲音 (放開按鈕)
-function stopSound(key) {
-  if (!activeNodes[key]) return;
+// 檔案上傳監聽
+audioUpload.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
   
-  const now = audioCtx.currentTime;
-  const node = activeNodes[key];
+  const arrayBuffer = await file.arrayBuffer();
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+  alert('音樂載入成功！點擊「開始遊戲」即可遊玩。');
+});
 
-  if (node.gainNode) {
-    node.gainNode.gain.linearRampToValueAtTime(0.01, now + 0.05);
-    setTimeout(() => {
-      if (node.osc) {
-        node.osc.stop();
-        node.osc.disconnect();
-      }
-    }, 50);
+startBtn.addEventListener('click', () => {
+  startGame();
+});
+
+function startGame() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+
+  // 若未上傳音樂，產生簡單的內建節奏音軌
+  if (!audioBuffer) {
+    createDefaultAudioBuffer();
   }
-  delete activeNodes[key];
+
+  // 重置遊戲狀態
+  score = 0;
+  combo = 0;
+  notes = [];
+  updateHUD();
+
+  // 產生示範譜面 (每 0.5 秒掉落一個音符)
+  generateBeatmap();
+
+  if (bgmSource) bgmSource.stop();
+  bgmSource = audioCtx.createBufferSource();
+  bgmSource.buffer = audioBuffer;
+  bgmSource.connect(audioCtx.destination);
+  bgmSource.start(0);
+
+  startTime = audioCtx.currentTime;
+  isPlaying = true;
+
+  requestAnimationFrame(gameLoop);
 }
 
-// 更新 Combo 與熱度值
-function updateHUD(isPressed) {
-  const comboEl = document.getElementById('combo-count');
-  const hypeEl = document.getElementById('hype-count');
-
-  if (isPressed) {
-    combo += 1;
-    hype = Math.min(100, hype + 5);
+// 產生測試譜面
+function generateBeatmap() {
+  const duration = audioBuffer.duration;
+  for (let t = 1.0; t < duration - 1; t += 0.5) {
+    const col = Math.floor(Math.random() * COLS);
+    notes.push({
+      col: col,
+      time: t, // 目標擊打時間 (秒)
+      hit: false
+    });
   }
-  
-  comboEl.innerText = combo;
-  hypeEl.innerText = `${hype}%`;
 }
 
-// 監聽鍵盤事件
+// 產生內建音訊
+function createDefaultAudioBuffer() {
+  const sampleRate = 44100;
+  const duration = 10; // 10秒測試音
+  audioBuffer = audioCtx.createBuffer(1, sampleRate * duration, sampleRate);
+  const data = audioBuffer.getChannelData(0);
+  for (let i = 0; i < audioBuffer.length; i++) {
+    const t = i / sampleRate;
+    data[i] = Math.sin(2 * Math.PI * 440 * t) * Math.exp(- (t % 1) * 3) * 0.1;
+  }
+}
+
+// 鍵盤事件
 window.addEventListener('keydown', (e) => {
   const key = e.key.toUpperCase();
-  if (trackConfigs[key] && !e.repeat) {
-    startSound(key);
-    const card = document.getElementById(`card-${key}`);
-    if (card) card.classList.add('active');
+  if (keysMap[key] !== undefined && isPlaying) {
+    checkHit(keysMap[key]);
   }
 });
 
-window.addEventListener('keyup', (e) => {
-  const key = e.key.toUpperCase();
-  if (trackConfigs[key]) {
-    stopSound(key);
-    const card = document.getElementById(`card-${key}`);
-    if (card) card.classList.remove('active');
+function checkHit(col) {
+  const currentTime = audioCtx.currentTime - startTime;
+  const threshold = 0.15; // 判定範圍 (秒)
+
+  // 尋找該軌道最接近判定線的未擊打音符
+  let closestNote = null;
+  let minDiff = 999;
+
+  for (let note of notes) {
+    if (note.col === col && !note.hit) {
+      const diff = Math.abs(note.time - currentTime);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closestNote = note;
+      }
+    }
   }
-});
 
-// Canvas 聲波 Visualizer 繪製
-const canvas = document.getElementById('visualizer');
-const canvasCtx = canvas.getContext('2d');
-
-function drawVisualizer() {
-  requestAnimationFrame(drawVisualizer);
-
-  canvasCtx.fillStyle = '#000000';
-  canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
-
-  if (!analyser) return;
-
-  const bufferLength = analyser.frequencyBinCount;
-  const dataArray = new Uint8Array(bufferLength);
-  analyser.getByteFrequencyData(dataArray);
-
-  const barWidth = (canvas.width / bufferLength) * 1.5;
-  let x = 0;
-
-  for (let i = 0; i < bufferLength; i++) {
-    const barHeight = (dataArray[i] / 255) * canvas.height;
-
-    // 8-Bit 像素發光方柱
-    canvasCtx.fillStyle = i % 2 === 0 ? '#00ffcc' : '#ff007f';
-    canvasCtx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
-
-    x += barWidth;
+  if (closestNote && minDiff < threshold) {
+    closestNote.hit = true;
+    if (minDiff < 0.06) {
+      showJudgment('PERFECT', 'jud-perfect');
+      score += 300;
+      combo += 1;
+    } else {
+      showJudgment('GOOD', 'jud-good');
+      score += 100;
+      combo += 1;
+    }
+  } else {
+    // 空按或按錯
+    showJudgment('MISS', 'jud-miss');
+    combo = 0;
   }
+  updateHUD();
 }
 
-// 啟動視覺化繪製
-drawVisualizer();
+function showJudgment(text, className) {
+  judgmentEl.innerText = text;
+  judgmentEl.className = className;
+}
+
+function updateHUD() {
+  scoreEl.innerText = score;
+  comboEl.innerText = combo;
+}
+
+// 遊戲主循環
+function gameLoop() {
+  if (!isPlaying) return;
+
+  const currentTime = audioCtx.currentTime - startTime;
+
+  // 清除畫布
+  ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+  // 繪製 4 條軌道背景
+  for (let i = 0; i < COLS; i++) {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(i * COL_WIDTH + 20, 0, COL_WIDTH - 4, CANVAS_HEIGHT);
+  }
+
+  // 繪製判定線
+  ctx.strokeStyle = '#38bdf8';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(20, JUDGE_LINE_Y);
+  ctx.lineTo(20 + COLS * COL_WIDTH, JUDGE_LINE_Y);
+  ctx.stroke();
+
+  // 繪製按鍵提示字母於判定線下方
+  ctx.fillStyle = '#64748b';
+  ctx.font = 'bold 16px Outfit';
+  for (let i = 0; i < COLS; i++) {
+    ctx.fillText(keyNames[i], i * COL_WIDTH + 58, JUDGE_LINE_Y + 30);
+  }
+
+  // 渲染與更新音符位置 (速度: 300 像素/秒)
+  const speed = 300; 
+  for (let note of notes) {
+    if (note.hit) continue;
+
+    const timeDiff = note.time - currentTime;
+    const y = JUDGE_LINE_Y - (timeDiff * speed);
+
+    // 若音符過期未打 -> Miss
+    if (y < -30) {
+      note.hit = true;
+      showJudgment('MISS', 'jud-miss');
+      combo = 0;
+      updateHUD();
+      continue;
+    }
+
+    // 繪製幾何音符
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(note.col * COL_WIDTH + 25, y, COL_WIDTH - 14, 16);
+  }
+
+  // 檢查音樂是否結束
+  if (audioBuffer && currentTime > audioBuffer.duration) {
+    isPlaying = false;
+    alert(`遊戲結束！最終得分：${score}`);
+    return;
+  }
+
+  requestAnimationFrame(gameLoop);
+}
