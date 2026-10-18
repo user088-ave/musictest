@@ -1,174 +1,136 @@
-// Web Audio API 上下文與合成器設定
-let audioCtx = null;
-let analyser = null;
-let masterGain = null;
-
-// 音軌狀態管理
-const activeNodes = {};
-let combo = 0;
-let hype = 0;
-
-// 定義 8-Bit 聲響 (音高與波形)
-const trackConfigs = {
-  'A': { type: 'noise', freq: 100, role: 'Drums' },
-  'S': { type: 'sawtooth', freq: 110, role: 'Bass' },   // A2 鍵
-  'D': { type: 'square', freq: 329.63, role: 'Chords' }, // E4 鍵
-  'F': { type: 'triangle', freq: 523.25, role: 'Lead' }   // C5 鍵
-};
-
-// 初始化 Web Audio API
-function initAudio() {
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 64;
-    
-    masterGain = audioCtx.createGain();
-    masterGain.gain.value = 0.3; // 避免聲音過大
-    
-    masterGain.connect(analyser);
-    analyser.connect(audioCtx.destination);
-  }
-  if (audioCtx.state === 'suspended') {
-    audioCtx.resume();
-  }
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
 }
 
-// 播放 8-Bit 晶片聲音 (按壓觸發)
-function startSound(key) {
-  if (!trackConfigs[key] || activeNodes[key]) return;
-  initAudio();
-
-  const config = trackConfigs[key];
-  const now = audioCtx.currentTime;
-
-  if (config.type === 'noise') {
-    // 合成 8-Bit 小鼓/雜訊鼓點
-    const bufferSize = audioCtx.sampleRate * 0.1;
-    const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < bufferSize; i++) {
-      data[i] = Math.random() * 2 - 1;
-    }
-    const noise = audioCtx.createBufferSource();
-    noise.buffer = buffer;
-    
-    const noiseFilter = audioCtx.createBiquadFilter();
-    noiseFilter.type = 'highpass';
-    noiseFilter.frequency.value = 1000;
-    
-    const gainNode = audioCtx.createGain();
-    gainNode.gain.setValueAtTime(0.8, now);
-    gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
-
-    noise.connect(noiseFilter);
-    noiseFilter.connect(gainNode);
-    gainNode.connect(masterGain);
-    
-    noise.start(now);
-    activeNodes[key] = { stop: () => noise.stop() };
-  } else {
-    // 振盪器波形 (Bass, Chords, Lead)
-    const osc = audioCtx.createOscillator();
-    const gainNode = audioCtx.createGain();
-
-    osc.type = config.type;
-    osc.frequency.setValueAtTime(config.freq, now);
-
-    gainNode.gain.setValueAtTime(0, now);
-    gainNode.gain.linearRampToValueAtTime(0.5, now + 0.02);
-
-    osc.connect(gainNode);
-    gainNode.connect(masterGain);
-
-    osc.start(now);
-    activeNodes[key] = { osc, gainNode };
-  }
-
-  updateHUD(true);
+body {
+  background-color: #0f172a;
+  color: #f8fafc;
+  font-family: 'Outfit', sans-serif;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  overflow: hidden;
 }
 
-// 停止聲音 (放開按鈕)
-function stopSound(key) {
-  if (!activeNodes[key]) return;
-  
-  const now = audioCtx.currentTime;
-  const node = activeNodes[key];
-
-  if (node.gainNode) {
-    node.gainNode.gain.linearRampToValueAtTime(0.01, now + 0.05);
-    setTimeout(() => {
-      if (node.osc) {
-        node.osc.stop();
-        node.osc.disconnect();
-      }
-    }, 50);
-  }
-  delete activeNodes[key];
+.game-wrapper {
+  display: flex;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 16px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+  max-width: 700px;
+  width: 100%;
 }
 
-// 更新 Combo 與熱度值
-function updateHUD(isPressed) {
-  const comboEl = document.getElementById('combo-count');
-  const hypeEl = document.getElementById('hype-count');
-
-  if (isPressed) {
-    combo += 1;
-    hype = Math.min(100, hype + 5);
-  }
-  
-  comboEl.innerText = combo;
-  hypeEl.innerText = `${hype}%`;
+/* 側邊面板 */
+.sidebar {
+  width: 280px;
+  padding: 30px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: #1e293b;
+  border-right: 1px solid #334155;
 }
 
-// 監聽鍵盤事件
-window.addEventListener('keydown', (e) => {
-  const key = e.key.toUpperCase();
-  if (trackConfigs[key] && !e.repeat) {
-    startSound(key);
-    const card = document.getElementById(`card-${key}`);
-    if (card) card.classList.add('active');
-  }
-});
-
-window.addEventListener('keyup', (e) => {
-  const key = e.key.toUpperCase();
-  if (trackConfigs[key]) {
-    stopSound(key);
-    const card = document.getElementById(`card-${key}`);
-    if (card) card.classList.remove('active');
-  }
-});
-
-// Canvas 聲波 Visualizer 繪製
-const canvas = document.getElementById('visualizer');
-const canvasCtx = canvas.getContext('2d');
-
-function drawVisualizer() {
-  requestAnimationFrame(drawVisualizer);
-
-  canvasCtx.fillStyle = '#000000';
-  canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
-
-  if (!analyser) return;
-
-  const bufferLength = analyser.frequencyBinCount;
-  const dataArray = new Uint8Array(bufferLength);
-  analyser.getByteFrequencyData(dataArray);
-
-  const barWidth = (canvas.width / bufferLength) * 1.5;
-  let x = 0;
-
-  for (let i = 0; i < bufferLength; i++) {
-    const barHeight = (dataArray[i] / 255) * canvas.height;
-
-    // 8-Bit 像素發光方柱
-    canvasCtx.fillStyle = i % 2 === 0 ? '#00ffcc' : '#ff007f';
-    canvasCtx.fillRect(x, canvas.height - barHeight, barWidth - 2, barHeight);
-
-    x += barWidth;
-  }
+.sidebar h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: 2px;
+  color: #38bdf8;
+  margin-bottom: 20px;
 }
 
-// 啟動視覺化繪製
-drawVisualizer();
+.score-board {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.stat-item span {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  letter-spacing: 1px;
+}
+
+.stat-item h3 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+#judgment {
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+.jud-perfect { color: #4ade80; }
+.jud-good { color: #facc15; }
+.jud-miss { color: #f87171; }
+
+.controls-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 20px 0;
+}
+
+#audio-upload {
+  display: none;
+}
+
+.upload-btn, .action-btn {
+  background: #38bdf8;
+  color: #0f172a;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  border: none;
+  transition: background 0.2s;
+}
+
+.upload-btn:hover, .action-btn:hover {
+  background: #0ea5e9;
+}
+
+.action-btn {
+  background: #4ade80;
+}
+.action-btn:hover {
+  background: #22c55e;
+}
+
+.key-hints {
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.key-hints code {
+  display: block;
+  margin-top: 6px;
+  color: #38bdf8;
+  font-weight: bold;
+  letter-spacing: 2px;
+}
+
+/* 遊戲畫布區 */
+.canvas-container {
+  background: #0b0f19;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 20px;
+}
+
+#gameCanvas {
+  background: #0f172a;
+  border-radius: 8px;
+  box-shadow: inset 0 0 20px rgba(0,0,0,0.8);
+}
