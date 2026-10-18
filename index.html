@@ -3,51 +3,63 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Minimal Rhythm - 極簡節奏</title>
+  <title>Piano Glow - 鋼琴聲光互動裝置</title>
   <link rel="stylesheet" href="style.css">
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
 </head>
 <body>
-  <div class="game-wrapper">
-    <aside class="sidebar">
-      <h2>MINIMAL<br>RHYTHM</h2>
-      <div class="score-board">
-        <div class="stat-item">
-          <span>SCORE</span>
-          <h3 id="score">0</h3>
-        </div>
-        <div class="stat-item">
-          <span>COMBO</span>
-          <h3 id="combo">0</h3>
-        </div>
-        <div class="stat-item">
-          <span>JUDGMENT</span>
-          <h3 id="judgment" class="jud-normal">-</h3>
-        </div>
+  <div class="game-container">
+    <header class="hud-header">
+      <h1 class="title">PIANO GLOW</h1>
+      <p class="subtitle">Interactive Audio-Visual Experience</p>
+    </header>
+
+    <!-- Canvas 光影視覺化波形與粒子 -->
+    <div class="visualizer-container">
+      <canvas id="visualizer" width="700" height="200"></canvas>
+    </div>
+
+    <!-- 琴鍵舞台區 -->
+    <main class="band-stage">
+      <div class="member-card" id="card-A" data-key="A">
+        <div class="key-badge">A</div>
+        <div class="role-name">C Maj7</div>
       </div>
 
-      <div class="controls-panel">
-        <label for="audio-upload" class="upload-btn">📁 上傳自選音樂 (MP3)</label>
-        <input type="file" id="audio-upload" accept="audio/*">
-        
-        <!-- 新增音量控制滑桿 -->
-        <div class="volume-control">
-          <span>音量調整</span>
-          <input type="range" id="volume-slider" min="0" max="1" step="0.05" value="0.5" oninput="setVolume(this.value)">
-        </div>
-
-        <button id="start-btn" class="action-btn">▶ 開始遊戲</button>
+      <div class="member-card" id="card-S" data-key="S">
+        <div class="key-badge">S</div>
+        <div class="role-name">E Min7</div>
       </div>
 
-      <div class="key-hints">
-        <p>鍵位對應：</p>
-        <code>[ D ] [ F ] [ J ] [ K ]</code>
+      <div class="member-card" id="card-D" data-key="D">
+        <div class="key-badge">D</div>
+        <div class="role-name">F Maj7</div>
       </div>
-    </aside>
 
-    <main class="canvas-container">
-      <canvas id="gameCanvas" width="400" height="600"></canvas>
+      <div class="member-card" id="card-F" data-key="F">
+        <div class="key-badge">F</div>
+        <div class="role-name">G7 / Sus4</div>
+      </div>
+
+      <div class="member-card" id="card-J" data-key="J">
+        <div class="key-badge">J</div>
+        <div class="role-name">A Min7</div>
+      </div>
+
+      <div class="member-card" id="card-K" data-key="K">
+        <div class="key-badge">K</div>
+        <div class="role-name">High C</div>
+      </div>
     </main>
+
+    <!-- 頁尾控制區 -->
+    <footer class="controls-guide">
+      <div class="volume-box">
+        <span>主音量 Volume</span>
+        <input type="range" id="volume-slider" min="0" max="1" step="0.01" value="0.5">
+      </div>
+      <p class="start-hint">按壓鍵盤 [A] [S] [D] [F] [J] [K] 彈奏琴音與光影特效</p>
+    </footer>
   </div>
 
   <script src="script.js"></script>
