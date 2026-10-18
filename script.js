@@ -1,7 +1,7 @@
 let audioCtx = null;
 let masterGain = null;
 
-// 記錄每個按鍵的當前動態高度（用於平滑動畫）
+// 記錄每個按鍵的當前動態高度
 const keyHeights = {
   'A': 0, 'S': 0, 'D': 0, 'F': 0, 'J': 0, 'K': 0
 };
@@ -70,7 +70,7 @@ function playPianoChord(key) {
   // 瞬間拉高該按鍵的視覺化柱狀高度
   keyHeights[key] = 1.0;
 
-  // 在該按鍵位置噴發粒子
+  // 在該按鍵正中央位置噴發粒子
   createParticles(key);
 }
 
@@ -81,17 +81,17 @@ function stopPianoChord(key) {
   }
 }
 
-// 根據按鍵位置產生對應的粒子
+// 根據按鍵位置產生對應的粒子（精準對齊欄位中心）
 function createParticles(key) {
   const config = chordConfigs[key];
   const keys = Object.keys(chordConfigs);
   const index = keys.indexOf(key);
   const colWidth = canvas.width / keys.length;
-  const x = colWidth * index + colWidth / 2;
+  const centerX = colWidth * index + colWidth / 2; // 欄位正中央
 
   for (let i = 0; i < 20; i++) {
     particles.push({
-      x: x + (Math.random() - 0.5) * 30,
+      x: centerX + (Math.random() - 0.5) * (colWidth * 0.6),
       y: canvas.height - 20,
       vx: (Math.random() - 0.5) * 4,
       vy: -Math.random() * 6 - 2,
@@ -142,9 +142,8 @@ function drawVisualizer() {
   const keys = Object.keys(chordConfigs);
   const colWidth = canvas.width / keys.length;
 
-  // 1. 繪製 6 個對應琴鍵位置的視覺化音柱 (Bars)
+  // 1. 繪製 6 個完美對齊琴鍵位置的光柱 (Bars)
   keys.forEach((key, index) => {
-    // 如果按鍵正被按住，維持高度；若放開則緩慢遞減回落
     if (activeVoices[key]) {
       keyHeights[key] = Math.min(1.0, keyHeights[key] + 0.15);
     } else {
@@ -152,32 +151,32 @@ function drawVisualizer() {
     }
 
     const heightFactor = keyHeights[key];
-    const x = index * colWidth + 10;
-    const y = canvas.height - (canvas.height * 0.8 * heightFactor);
-    const w = colWidth - 20;
-    const h = canvas.height * 0.8 * heightFactor;
+    
+    // 讓光柱寬度佔該欄位的 60%，並透過公式精準置中在該欄位內
+    const barWidth = colWidth * 0.6;
+    const x = index * colWidth + (colWidth - barWidth) / 2;
+    const h = (canvas.height * 0.75) * heightFactor;
+    const y = canvas.height - h - 30; // 留空間給底部按鍵提示文字
 
-    if (h > 5) {
-      // 建立對應按鍵顏色的漸層光柱
+    if (h > 2) {
       const config = chordConfigs[key];
       const gradient = ctx.createLinearGradient(0, canvas.height, 0, y);
-      gradient.addColorStop(0, 'rgba(17, 24, 39, 0.2)');
+      gradient.addColorStop(0, 'rgba(17, 24, 39, 0.1)');
       gradient.addColorStop(1, config.color);
 
       ctx.save();
       ctx.shadowBlur = 20;
       ctx.shadowColor = config.color;
       ctx.fillStyle = gradient;
-      ctx.roundRect ? ctx.roundRect(x, y, w, h, [8, 8, 0, 0]) : ctx.fillRect(x, y, w, h);
-      ctx.fill();
+      ctx.fillRect(x, y, barWidth, h); // 使用標準矩形確保完美對齊
       ctx.restore();
     }
 
-    // 繪製底部的鍵名標示於畫布中，加強對應感
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    // 繪製底部的鍵名標示於畫布中
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
     ctx.font = 'bold 14px Outfit';
     ctx.textAlign = 'center';
-    ctx.fillText(key, index * colWidth + colWidth / 2, canvas.height - 15);
+    ctx.fillText(key, index * colWidth + colWidth / 2, canvas.height - 12);
   });
 
   // 2. 繪製擴散粒子
@@ -206,3 +205,6 @@ function drawVisualizer() {
 
 // 啟動畫布渲染
 drawVisualizer();
+```[cite: 1]
+
+更新後，光柱就會跟著你的按鍵位置，完完全全和粒子從同一個欄位中心升起囉！快去 GitHub 重新整理看看效果吧！
