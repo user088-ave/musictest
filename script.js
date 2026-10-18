@@ -1,15 +1,12 @@
 let audioCtx = null;
 let masterGain = null;
 
-// 記錄每個按鍵的當前動態高度
 const keyHeights = {
   'A': 0, 'S': 0, 'D': 0, 'F': 0, 'J': 0, 'K': 0
 };
 
-// 粒子陣列
 let particles = [];
 
-// 定義鋼琴和弦頻率與對應顏色
 const chordConfigs = {
   'A': { freqs: [261.63, 329.63, 392.00, 493.88], color: '#38bdf8', name: 'C Maj7' }, 
   'S': { freqs: [164.81, 246.94, 329.63, 392.00], color: '#818cf8', name: 'E Min7' }, 
@@ -21,7 +18,6 @@ const chordConfigs = {
 
 const activeVoices = {};
 
-// 初始化 Web Audio API（確保全域安全建立）
 function initAudio() {
   if (!audioCtx) {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -36,12 +32,10 @@ function initAudio() {
   }
 }
 
-// 頁面任意點擊或按鍵時自動解鎖 AudioContext
 window.addEventListener('pointerdown', () => {
   initAudio();
 }, { once: true });
 
-// 播放鋼琴和弦與觸發對應位置特效
 function playPianoChord(key) {
   initAudio();
   if (!chordConfigs[key] || activeVoices[key]) return;
@@ -73,22 +67,16 @@ function playPianoChord(key) {
   });
 
   activeVoices[key] = { oscillators, gains };
-
-  // 瞬間拉高該按鍵的視覺化柱狀高度
   keyHeights[key] = 1.0;
-
-  // 在該按鍵正中央位置噴發粒子
   createParticles(key);
 }
 
-// 停止發聲
 function stopPianoChord(key) {
   if (activeVoices[key]) {
     delete activeVoices[key];
   }
 }
 
-// 根據按鍵位置產生對應的粒子
 function createParticles(key) {
   const config = chordConfigs[key];
   const keys = Object.keys(chordConfigs);
@@ -109,17 +97,17 @@ function createParticles(key) {
   }
 }
 
-// 音量控制（加入防呆機制，若未初始化先建立）
-document.getElementById('volume-slider').addEventListener('input', (e) => {
-  initAudio();
-  if (masterGain && audioCtx) {
-    masterGain.gain.setValueAtTime(parseFloat(e.target.value), audioCtx.currentTime);
-  }
-});
+const volumeSlider = document.getElementById('volume-slider');
+if (volumeSlider) {
+  volumeSlider.addEventListener('input', (e) => {
+    initAudio();
+    if (masterGain && audioCtx) {
+      masterGain.gain.setValueAtTime(parseFloat(e.target.value), audioCtx.currentTime);
+    }
+  });
+}
 
-// 鍵盤事件監聽
 window.addEventListener('keydown', (e) => {
-  // 忽略重複觸發與非目標按鍵
   if (e.repeat) return;
   const key = e.key.toUpperCase();
   if (chordConfigs[key]) {
@@ -138,21 +126,18 @@ window.addEventListener('keyup', (e) => {
   }
 });
 
-// Canvas 畫布與分欄動態視覺化繪製
 const canvas = document.getElementById('visualizer');
 const ctx = canvas.getContext('2d');
 
 function drawVisualizer() {
   requestAnimationFrame(drawVisualizer);
 
-  // 清除背景殘影
   ctx.fillStyle = 'rgba(3, 7, 18, 0.3)';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   const keys = Object.keys(chordConfigs);
   const colWidth = canvas.width / keys.length;
 
-  // 1. 繪製 6 個完美對齊琴鍵位置的光柱
   keys.forEach((key, index) => {
     if (activeVoices[key]) {
       keyHeights[key] = Math.min(1.0, keyHeights[key] + 0.15);
@@ -180,14 +165,12 @@ function drawVisualizer() {
       ctx.restore();
     }
 
-    // 繪製底部的鍵名標示
     ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
     ctx.font = 'bold 14px Outfit';
     ctx.textAlign = 'center';
     ctx.fillText(key, index * colWidth + colWidth / 2, canvas.height - 12);
   });
 
-  // 2. 繪製擴散粒子
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.x += p.vx;
@@ -211,5 +194,4 @@ function drawVisualizer() {
   }
 }
 
-// 啟動畫布渲染
 drawVisualizer();
