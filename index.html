@@ -9,7 +9,6 @@
 </head>
 <body>
   <div class="game-wrapper">
-    <!-- 側邊資訊面板 -->
     <aside class="sidebar">
       <h2>MINIMAL<br>RHYTHM</h2>
       <div class="score-board">
@@ -30,6 +29,13 @@
       <div class="controls-panel">
         <label for="audio-upload" class="upload-btn">📁 上傳自選音樂 (MP3)</label>
         <input type="file" id="audio-upload" accept="audio/*">
+        
+        <!-- 新增音量控制滑桿 -->
+        <div class="volume-control">
+          <span>音量調整</span>
+          <input type="range" id="volume-slider" min="0" max="1" step="0.05" value="0.5" oninput="setVolume(this.value)">
+        </div>
+
         <button id="start-btn" class="action-btn">▶ 開始遊戲</button>
       </div>
 
@@ -39,7 +45,6 @@
       </div>
     </aside>
 
-    <!-- 遊戲畫布區 -->
     <main class="canvas-container">
       <canvas id="gameCanvas" width="400" height="600"></canvas>
     </main>
