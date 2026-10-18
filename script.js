@@ -21,10 +21,12 @@ const chordConfigs = {
 
 const activeVoices = {};
 
-// 初始化 Web Audio API
+// 初始化 Web Audio API（確保全域安全建立）
 function initAudio() {
   if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AudioContext();
+    
     masterGain = audioCtx.createGain();
     masterGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
     masterGain.connect(audioCtx.destination);
@@ -34,10 +36,15 @@ function initAudio() {
   }
 }
 
+// 頁面任意點擊或按鍵時自動解鎖 AudioContext
+window.addEventListener('pointerdown', () => {
+  initAudio();
+}, { once: true });
+
 // 播放鋼琴和弦與觸發對應位置特效
 function playPianoChord(key) {
-  if (!chordConfigs[key] || activeVoices[key]) return;
   initAudio();
+  if (!chordConfigs[key] || activeVoices[key]) return;
 
   const config = chordConfigs[key];
   const now = audioCtx.currentTime;
@@ -81,13 +88,13 @@ function stopPianoChord(key) {
   }
 }
 
-// 根據按鍵位置產生對應的粒子（精準對齊欄位中心）
+// 根據按鍵位置產生對應的粒子
 function createParticles(key) {
   const config = chordConfigs[key];
   const keys = Object.keys(chordConfigs);
   const index = keys.indexOf(key);
   const colWidth = canvas.width / keys.length;
-  const centerX = colWidth * index + colWidth / 2; // 欄位正中央
+  const centerX = colWidth * index + colWidth / 2;
 
   for (let i = 0; i < 20; i++) {
     particles.push({
@@ -102,17 +109,20 @@ function createParticles(key) {
   }
 }
 
-// 音量控制
+// 音量控制（加入防呆機制，若未初始化先建立）
 document.getElementById('volume-slider').addEventListener('input', (e) => {
+  initAudio();
   if (masterGain && audioCtx) {
-    masterGain.gain.setValueAtTime(e.target.value, audioCtx.currentTime);
+    masterGain.gain.setValueAtTime(parseFloat(e.target.value), audioCtx.currentTime);
   }
 });
 
 // 鍵盤事件監聽
 window.addEventListener('keydown', (e) => {
+  // 忽略重複觸發與非目標按鍵
+  if (e.repeat) return;
   const key = e.key.toUpperCase();
-  if (chordConfigs[key] && !e.repeat) {
+  if (chordConfigs[key]) {
     playPianoChord(key);
     const card = document.getElementById(`card-${key}`);
     if (card) card.classList.add('active');
@@ -142,7 +152,7 @@ function drawVisualizer() {
   const keys = Object.keys(chordConfigs);
   const colWidth = canvas.width / keys.length;
 
-  // 1. 繪製 6 個完美對齊琴鍵位置的光柱 (Bars)
+  // 1. 繪製 6 個完美對齊琴鍵位置的光柱
   keys.forEach((key, index) => {
     if (activeVoices[key]) {
       keyHeights[key] = Math.min(1.0, keyHeights[key] + 0.15);
@@ -151,12 +161,10 @@ function drawVisualizer() {
     }
 
     const heightFactor = keyHeights[key];
-    
-    // 讓光柱寬度佔該欄位的 60%，並透過公式精準置中在該欄位內
     const barWidth = colWidth * 0.6;
     const x = index * colWidth + (colWidth - barWidth) / 2;
     const h = (canvas.height * 0.75) * heightFactor;
-    const y = canvas.height - h - 30; // 留空間給底部按鍵提示文字
+    const y = canvas.height - h - 30;
 
     if (h > 2) {
       const config = chordConfigs[key];
@@ -168,11 +176,11 @@ function drawVisualizer() {
       ctx.shadowBlur = 20;
       ctx.shadowColor = config.color;
       ctx.fillStyle = gradient;
-      ctx.fillRect(x, y, barWidth, h); // 使用標準矩形確保完美對齊
+      ctx.fillRect(x, y, barWidth, h);
       ctx.restore();
     }
 
-    // 繪製底部的鍵名標示於畫布中
+    // 繪製底部的鍵名標示
     ctx.fillStyle = 'rgba(255, 255, 255, 0.25)';
     ctx.font = 'bold 14px Outfit';
     ctx.textAlign = 'center';
@@ -205,6 +213,3 @@ function drawVisualizer() {
 
 // 啟動畫布渲染
 drawVisualizer();
-```[cite: 1]
-
-更新後，光柱就會跟著你的按鍵位置，完完全全和粒子從同一個欄位中心升起囉！快去 GitHub 重新整理看看效果吧！
