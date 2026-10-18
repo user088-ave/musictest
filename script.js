@@ -1,18 +1,22 @@
 let audioCtx = null;
 let masterGain = null;
-let analyser = null;
 
-// 音符粒子陣列
+// 記錄每個按鍵的當前動態高度（用於平滑動畫）
+const keyHeights = {
+  'A': 0, 'S': 0, 'D': 0, 'F': 0, 'J': 0, 'K': 0
+};
+
+// 粒子陣列
 let particles = [];
 
-// 定義鋼琴和弦頻率 (Hz)
+// 定義鋼琴和弦頻率與對應顏色
 const chordConfigs = {
-  'A': { freqs: [261.63, 329.63, 392.00, 493.88], color: '#38bdf8', name: 'C Maj7' }, // C4, E4, G4, B4
-  'S': { freqs: [164.81, 246.94, 329.63, 392.00], color: '#818cf8', name: 'E Min7' }, // E3, B3, E4, G4
-  'D': { freqs: [174.61, 261.63, 329.63, 392.00], color: '#c084fc', name: 'F Maj7' }, // F3, C4, E4, G4
-  'F': { freqs: [196.00, 293.66, 349.23, 392.00], color: '#f472b6', name: 'G7 Sus4' },// G3, D4, F4, G4
-  'J': { freqs: [220.00, 261.63, 329.63, 392.00], color: '#34d399', name: 'A Min7' }, // A3, C4, E4, G4
-  'K': { freqs: [523.25, 659.25, 783.99],       color: '#fbbf24', name: 'High C' }  // C5, E5, G5
+  'A': { freqs: [261.63, 329.63, 392.00, 493.88], color: '#38bdf8', name: 'C Maj7' }, 
+  'S': { freqs: [164.81, 246.94, 329.63, 392.00], color: '#818cf8', name: 'E Min7' }, 
+  'D': { freqs: [174.61, 261.63, 329.63, 392.00], color: '#c084fc', name: 'F Maj7' }, 
+  'F': { freqs: [196.00, 293.66, 349.23, 392.00], color: '#f472b6', name: 'G7 Sus4' },
+  'J': { freqs: [220.00, 261.63, 329.63, 392.00], color: '#34d399', name: 'A Min7' }, 
+  'K': { freqs: [523.25, 659.25, 783.99],       color: '#fbbf24', name: 'High C' }  
 };
 
 const activeVoices = {};
@@ -21,21 +25,16 @@ const activeVoices = {};
 function initAudio() {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 128;
-
     masterGain = audioCtx.createGain();
     masterGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
-
-    masterGain.connect(analyser);
-    analyser.connect(audioCtx.destination);
+    masterGain.connect(audioCtx.destination);
   }
   if (audioCtx.state === 'suspended') {
     audioCtx.resume();
   }
 }
 
-// 模擬鋼琴琴音 (合成器)
+// 播放鋼琴和弦與觸發對應位置特效
 function playPianoChord(key) {
   if (!chordConfigs[key] || activeVoices[key]) return;
   initAudio();
@@ -45,16 +44,13 @@ function playPianoChord(key) {
   const oscillators = [];
   const gains = [];
 
-  // 為和弦中的每個頻率建立音軌
   config.freqs.forEach(freq => {
     const osc = audioCtx.createOscillator();
     const gain = audioCtx.createGain();
 
-    // 正弦波 + 柔和泛音模擬鋼琴質感
     osc.type = 'sine';
     osc.frequency.setValueAtTime(freq, now);
 
-    // ADSR 鋼琴包絡線：快速 Hit，漸進釋放 (Decay/Release)
     gain.gain.setValueAtTime(0, now);
     gain.gain.linearRampToValueAtTime(0.25, now + 0.02);
     gain.gain.exponentialRampToValueAtTime(0.001, now + 2.5);
@@ -71,25 +67,35 @@ function playPianoChord(key) {
 
   activeVoices[key] = { oscillators, gains };
 
-  // 產生動態光影粒子
+  // 瞬間拉高該按鍵的視覺化柱狀高度
+  keyHeights[key] = 1.0;
+
+  // 在該按鍵位置噴發粒子
   createParticles(key);
 }
 
-// 觸發視覺化粒子擴散
+// 停止發聲
+function stopPianoChord(key) {
+  if (activeVoices[key]) {
+    delete activeVoices[key];
+  }
+}
+
+// 根據按鍵位置產生對應的粒子
 function createParticles(key) {
   const config = chordConfigs[key];
   const keys = Object.keys(chordConfigs);
   const index = keys.indexOf(key);
-  const canvasWidth = canvas.width;
-  const x = (canvasWidth / keys.length) * (index + 0.5);
+  const colWidth = canvas.width / keys.length;
+  const x = colWidth * index + colWidth / 2;
 
-  for (let i = 0; i < 25; i++) {
+  for (let i = 0; i < 20; i++) {
     particles.push({
-      x: x,
+      x: x + (Math.random() - 0.5) * 30,
       y: canvas.height - 20,
-      vx: (Math.random() - 0.5) * 6,
-      vy: -Math.random() * 8 - 2,
-      radius: Math.random() * 5 + 2,
+      vx: (Math.random() - 0.5) * 4,
+      vy: -Math.random() * 6 - 2,
+      radius: Math.random() * 4 + 2,
       color: config.color,
       alpha: 1
     });
@@ -103,7 +109,7 @@ document.getElementById('volume-slider').addEventListener('input', (e) => {
   }
 });
 
-// 鍵盤按下與放開監聽
+// 鍵盤事件監聽
 window.addEventListener('keydown', (e) => {
   const key = e.key.toUpperCase();
   if (chordConfigs[key] && !e.repeat) {
@@ -116,52 +122,70 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => {
   const key = e.key.toUpperCase();
   if (chordConfigs[key]) {
-    delete activeVoices[key];
+    stopPianoChord(key);
     const card = document.getElementById(`card-${key}`);
     if (card) card.classList.remove('active');
   }
 });
 
-// Canvas 高質感動態光影繪製
+// Canvas 畫布與分欄動態視覺化繪製
 const canvas = document.getElementById('visualizer');
 const ctx = canvas.getContext('2d');
 
 function drawVisualizer() {
   requestAnimationFrame(drawVisualizer);
 
-  // 漸隱背景產生尾影效果
-  ctx.fillStyle = 'rgba(3, 7, 18, 0.2)';
+  // 清除背景殘影
+  ctx.fillStyle = 'rgba(3, 7, 18, 0.3)';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // 繪製頻域平滑波形 (Equalizer)
-  if (analyser) {
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-    analyser.getByteFrequencyData(dataArray);
+  const keys = Object.keys(chordConfigs);
+  const colWidth = canvas.width / keys.length;
 
-    const barWidth = (canvas.width / bufferLength) * 2;
-    let x = 0;
-
-    for (let i = 0; i < bufferLength; i++) {
-      const barHeight = (dataArray[i] / 255) * (canvas.height * 0.7);
-
-      const gradient = ctx.createLinearGradient(0, canvas.height, 0, canvas.height - barHeight);
-      gradient.addColorStop(0, 'rgba(56, 189, 248, 0.1)');
-      gradient.addColorStop(1, 'rgba(192, 132, 252, 0.8)');
-
-      ctx.fillStyle = gradient;
-      ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
-
-      x += barWidth;
+  // 1. 繪製 6 個對應琴鍵位置的視覺化音柱 (Bars)
+  keys.forEach((key, index) => {
+    // 如果按鍵正被按住，維持高度；若放開則緩慢遞減回落
+    if (activeVoices[key]) {
+      keyHeights[key] = Math.min(1.0, keyHeights[key] + 0.15);
+    } else {
+      keyHeights[key] = Math.max(0, keyHeights[key] - 0.05);
     }
-  }
 
-  // 繪製動態粒子光霧
+    const heightFactor = keyHeights[key];
+    const x = index * colWidth + 10;
+    const y = canvas.height - (canvas.height * 0.8 * heightFactor);
+    const w = colWidth - 20;
+    const h = canvas.height * 0.8 * heightFactor;
+
+    if (h > 5) {
+      // 建立對應按鍵顏色的漸層光柱
+      const config = chordConfigs[key];
+      const gradient = ctx.createLinearGradient(0, canvas.height, 0, y);
+      gradient.addColorStop(0, 'rgba(17, 24, 39, 0.2)');
+      gradient.addColorStop(1, config.color);
+
+      ctx.save();
+      ctx.shadowBlur = 20;
+      ctx.shadowColor = config.color;
+      ctx.fillStyle = gradient;
+      ctx.roundRect ? ctx.roundRect(x, y, w, h, [8, 8, 0, 0]) : ctx.fillRect(x, y, w, h);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // 繪製底部的鍵名標示於畫布中，加強對應感
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.2)';
+    ctx.font = 'bold 14px Outfit';
+    ctx.textAlign = 'center';
+    ctx.fillText(key, index * colWidth + colWidth / 2, canvas.height - 15);
+  });
+
+  // 2. 繪製擴散粒子
   for (let i = particles.length - 1; i >= 0; i--) {
     const p = particles[i];
     p.x += p.vx;
     p.y += p.vy;
-    p.alpha -= 0.015;
+    p.alpha -= 0.02;
 
     if (p.alpha <= 0) {
       particles.splice(i, 1);
@@ -171,7 +195,7 @@ function drawVisualizer() {
     ctx.save();
     ctx.globalAlpha = p.alpha;
     ctx.fillStyle = p.color;
-    ctx.shadowBlur = 15;
+    ctx.shadowBlur = 10;
     ctx.shadowColor = p.color;
     ctx.beginPath();
     ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
