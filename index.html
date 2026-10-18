@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pixel Chiptune Stage - 像素電音舞台</title>
+  <link rel="stylesheet" href="style.css">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="game-container">
+    <header class="hud-header">
+      <h1 class="title">PIXEL CHIPTUNE STAGE</h1>
+      <div class="stats-bar">
+        <div class="stat-box">COMBO: <span id="combo-count">0</span></div>
+        <div class="stat-box">HYPE: <span id="hype-count">0%</span></div>
+      </div>
+    </header>
+
+    <!-- Canvas 音樂視覺化波形 -->
+    <div class="visualizer-container">
+      <canvas id="visualizer" width="600" height="120"></canvas>
+    </div>
+
+    <!-- 樂團舞台區 -->
+    <main class="band-stage">
+      <div class="member-card" id="card-A" data-key="A">
+        <div class="key-badge">A</div>
+        <div class="pixel-avatar drum-avatar"></div>
+        <div class="role-name">DRUMS</div>
+      </div>
+
+      <div class="member-card" id="card-S" data-key="S">
+        <div class="key-badge">S</div>
+        <div class="pixel-avatar bass-avatar"></div>
+        <div class="role-name">BASS</div>
+      </div>
+
+      <div class="member-card" id="card-D" data-key="D">
+        <div class="key-badge">D</div>
+        <div class="pixel-avatar synth-avatar"></div>
+        <div class="role-name">CHORDS</div>
+      </div>
+
+      <div class="member-card" id="card-F" data-key="F">
+        <div class="key-badge">F</div>
+        <div class="pixel-avatar lead-avatar"></div>
+        <div class="role-name">LEAD</div>
+      </div>
+    </main>
+
+    <!-- 頁尾操作提示 -->
+    <footer class="controls-guide">
+      <p class="start-hint" id="start-hint">按壓鍵盤 [A] [S] [D] [F] 啟動樂團演奏！</p>
+    </footer>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
