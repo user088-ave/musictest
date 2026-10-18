@@ -1,230 +1,184 @@
-const canvas = document.getElementById('gameCanvas');
-const ctx = canvas.getContext('2d');
-
-const COLS = 4;
-const COL_WIDTH = 90;
-const CANVAS_WIDTH = canvas.width;
-const CANVAS_HEIGHT = canvas.height;
-const JUDGE_LINE_Y = 500;
-
-const keysMap = { 'D': 0, 'F': 1, 'J': 2, 'K': 3 };
-const keyNames = ['D', 'F', 'J', 'K'];
-
-let score = 0;
-let combo = 0;
-let isPlaying = false;
-let notes = [];
 let audioCtx = null;
-let bgmSource = null;
-let audioBuffer = null;
-let gainNode = null;
-let startTime = 0;
+let masterGain = null;
+let analyser = null;
 
-// DOM 元素
-const scoreEl = document.getElementById('score');
-const comboEl = document.getElementById('combo');
-const judgmentEl = document.getElementById('judgment');
-const startBtn = document.getElementById('start-btn');
-const audioUpload = document.getElementById('audio-upload');
+// 音符粒子陣列
+let particles = [];
 
-// 初始化 Web Audio API 與音量節點
+// 定義鋼琴和弦頻率 (Hz)
+const chordConfigs = {
+  'A': { freqs: [261.63, 329.63, 392.00, 493.88], color: '#38bdf8', name: 'C Maj7' }, // C4, E4, G4, B4
+  'S': { freqs: [164.81, 246.94, 329.63, 392.00], color: '#818cf8', name: 'E Min7' }, // E3, B3, E4, G4
+  'D': { freqs: [174.61, 261.63, 329.63, 392.00], color: '#c084fc', name: 'F Maj7' }, // F3, C4, E4, G4
+  'F': { freqs: [196.00, 293.66, 349.23, 392.00], color: '#f472b6', name: 'G7 Sus4' },// G3, D4, F4, G4
+  'J': { freqs: [220.00, 261.63, 329.63, 392.00], color: '#34d399', name: 'A Min7' }, // A3, C4, E4, G4
+  'K': { freqs: [523.25, 659.25, 783.99],       color: '#fbbf24', name: 'High C' }  // C5, E5, G5
+};
+
+const activeVoices = {};
+
+// 初始化 Web Audio API
 function initAudio() {
   if (!audioCtx) {
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    gainNode = audioCtx.createGain();
-    gainNode.connect(audioCtx.destination);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 128;
+
+    masterGain = audioCtx.createGain();
+    masterGain.gain.setValueAtTime(0.5, audioCtx.currentTime);
+
+    masterGain.connect(analyser);
+    analyser.connect(audioCtx.destination);
   }
   if (audioCtx.state === 'suspended') {
     audioCtx.resume();
   }
 }
 
-// 檔案上傳監聽
-audioUpload.addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  
-  initAudio();
-  const arrayBuffer = await file.arrayBuffer();
-  audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-  alert('音樂載入成功！點擊「開始遊戲」即可遊玩。');
-});
-
-startBtn.addEventListener('click', () => {
-  startGame();
-});
-
-function startGame() {
+// 模擬鋼琴琴音 (合成器)
+function playPianoChord(key) {
+  if (!chordConfigs[key] || activeVoices[key]) return;
   initAudio();
 
-  // 若未上傳音樂，產生預設測試音訊
-  if (!audioBuffer) {
-    createDefaultAudioBuffer();
-  }
+  const config = chordConfigs[key];
+  const now = audioCtx.currentTime;
+  const oscillators = [];
+  const gains = [];
 
-  // 重置遊戲狀態
-  score = 0;
-  combo = 0;
-  notes = [];
-  updateHUD();
+  // 為和弦中的每個頻率建立音軌
+  config.freqs.forEach(freq => {
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
 
-  // 根據音樂長度密集生成音符（每 0.35 秒一個，確保落鍵豐富）
-  generateBeatmap();
+    // 正弦波 + 柔和泛音模擬鋼琴質感
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, now);
 
-  if (bgmSource) bgmSource.stop();
-  bgmSource = audioCtx.createBufferSource();
-  bgmSource.buffer = audioBuffer;
-  
-  // 連接音量控制節點
-  bgmSource.connect(gainNode);
-  bgmSource.start(0);
+    // ADSR 鋼琴包絡線：快速 Hit，漸進釋放 (Decay/Release)
+    gain.gain.setValueAtTime(0, now);
+    gain.gain.linearRampToValueAtTime(0.25, now + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 2.5);
 
-  startTime = audioCtx.currentTime;
-  isPlaying = true;
+    osc.connect(gain);
+    gain.connect(masterGain);
 
-  requestAnimationFrame(gameLoop);
+    osc.start(now);
+    osc.stop(now + 2.5);
+
+    oscillators.push(osc);
+    gains.push(gain);
+  });
+
+  activeVoices[key] = { oscillators, gains };
+
+  // 產生動態光影粒子
+  createParticles(key);
 }
 
-// 生成豐富的音符譜面
-function generateBeatmap() {
-  const duration = audioBuffer.duration;
-  // 從第 1 秒開始，每隔 0.35 秒隨機生成一個落鍵，確保數量充足
-  for (let t = 1.0; t < duration - 1; t += 0.35) {
-    const col = Math.floor(Math.random() * COLS);
-    notes.push({
-      col: col,
-      time: t, 
-      hit: false
+// 觸發視覺化粒子擴散
+function createParticles(key) {
+  const config = chordConfigs[key];
+  const keys = Object.keys(chordConfigs);
+  const index = keys.indexOf(key);
+  const canvasWidth = canvas.width;
+  const x = (canvasWidth / keys.length) * (index + 0.5);
+
+  for (let i = 0; i < 25; i++) {
+    particles.push({
+      x: x,
+      y: canvas.height - 20,
+      vx: (Math.random() - 0.5) * 6,
+      vy: -Math.random() * 8 - 2,
+      radius: Math.random() * 5 + 2,
+      color: config.color,
+      alpha: 1
     });
   }
 }
 
-// 產生內建音訊
-function createDefaultAudioBuffer() {
-  const sampleRate = 44100;
-  const duration = 15; 
-  audioBuffer = audioCtx.createBuffer(1, sampleRate * duration, sampleRate);
-  const data = audioBuffer.getChannelData(0);
-  for (let i = 0; i < audioBuffer.length; i++) {
-    const t = i / sampleRate;
-    data[i] = Math.sin(2 * Math.PI * 440 * t) * Math.exp(- (t % 0.5) * 4) * 0.1;
-  }
-}
-
-// 調整音量大小 (接收來自滑桿的值 0 ~ 1)
-function setVolume(val) {
-  if (gainNode) {
-    gainNode.gain.setValueAtTime(val, audioCtx ? audioCtx.currentTime : 0);
-  }
-}
-
-// 鍵盤事件
-window.addEventListener('keydown', (e) => {
-  const key = e.key.toUpperCase();
-  if (keysMap[key] !== undefined && isPlaying) {
-    checkHit(keysMap[key]);
+// 音量控制
+document.getElementById('volume-slider').addEventListener('input', (e) => {
+  if (masterGain && audioCtx) {
+    masterGain.gain.setValueAtTime(e.target.value, audioCtx.currentTime);
   }
 });
 
-function checkHit(col) {
-  const currentTime = audioCtx.currentTime - startTime;
-  const threshold = 0.18; // 判定範圍 (秒)
+// 鍵盤按下與放開監聽
+window.addEventListener('keydown', (e) => {
+  const key = e.key.toUpperCase();
+  if (chordConfigs[key] && !e.repeat) {
+    playPianoChord(key);
+    const card = document.getElementById(`card-${key}`);
+    if (card) card.classList.add('active');
+  }
+});
 
-  let closestNote = null;
-  let minDiff = 999;
+window.addEventListener('keyup', (e) => {
+  const key = e.key.toUpperCase();
+  if (chordConfigs[key]) {
+    delete activeVoices[key];
+    const card = document.getElementById(`card-${key}`);
+    if (card) card.classList.remove('active');
+  }
+});
 
-  for (let note of notes) {
-    if (note.col === col && !note.hit) {
-      const diff = Math.abs(note.time - currentTime);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closestNote = note;
-      }
+// Canvas 高質感動態光影繪製
+const canvas = document.getElementById('visualizer');
+const ctx = canvas.getContext('2d');
+
+function drawVisualizer() {
+  requestAnimationFrame(drawVisualizer);
+
+  // 漸隱背景產生尾影效果
+  ctx.fillStyle = 'rgba(3, 7, 18, 0.2)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // 繪製頻域平滑波形 (Equalizer)
+  if (analyser) {
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+
+    const barWidth = (canvas.width / bufferLength) * 2;
+    let x = 0;
+
+    for (let i = 0; i < bufferLength; i++) {
+      const barHeight = (dataArray[i] / 255) * (canvas.height * 0.7);
+
+      const gradient = ctx.createLinearGradient(0, canvas.height, 0, canvas.height - barHeight);
+      gradient.addColorStop(0, 'rgba(56, 189, 248, 0.1)');
+      gradient.addColorStop(1, 'rgba(192, 132, 252, 0.8)');
+
+      ctx.fillStyle = gradient;
+      ctx.fillRect(x, canvas.height - barHeight, barWidth - 1, barHeight);
+
+      x += barWidth;
     }
   }
 
-  if (closestNote && minDiff < threshold) {
-    closestNote.hit = true;
-    if (minDiff < 0.08) {
-      showJudgment('PERFECT', 'jud-perfect');
-      score += 300;
-      combo += 1;
-    } else {
-      showJudgment('GOOD', 'jud-good');
-      score += 100;
-      combo += 1;
-    }
-  } else {
-    showJudgment('MISS', 'jud-miss');
-    combo = 0;
-  }
-  updateHUD();
-}
+  // 繪製動態粒子光霧
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.x += p.vx;
+    p.y += p.vy;
+    p.alpha -= 0.015;
 
-function showJudgment(text, className) {
-  judgmentEl.innerText = text;
-  judgmentEl.className = className;
-}
-
-function updateHUD() {
-  scoreEl.innerText = score;
-  comboEl.innerText = combo;
-}
-
-// 遊戲主循環
-function gameLoop() {
-  if (!isPlaying) return;
-
-  const currentTime = audioCtx.currentTime - startTime;
-
-  ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
-
-  // 繪製軌道
-  for (let i = 0; i < COLS; i++) {
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(i * COL_WIDTH + 20, 0, COL_WIDTH - 4, CANVAS_HEIGHT);
-  }
-
-  // 判定線
-  ctx.strokeStyle = '#38bdf8';
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(20, JUDGE_LINE_Y);
-  ctx.lineTo(20 + COLS * COL_WIDTH, JUDGE_LINE_Y);
-  ctx.stroke();
-
-  // 鍵位提示
-  ctx.fillStyle = '#64748b';
-  ctx.font = 'bold 16px Outfit';
-  for (let i = 0; i < COLS; i++) {
-    ctx.fillText(keyNames[i], i * COL_WIDTH + 58, JUDGE_LINE_Y + 30);
-  }
-
-  // 渲染音符 (速度: 300 像素/秒)
-  const speed = 300; 
-  for (let note of notes) {
-    if (note.hit) continue;
-
-    const timeDiff = note.time - currentTime;
-    const y = JUDGE_LINE_Y - (timeDiff * speed);
-
-    if (y < -30) {
-      note.hit = true;
-      showJudgment('MISS', 'jud-miss');
-      combo = 0;
-      updateHUD();
+    if (p.alpha <= 0) {
+      particles.splice(i, 1);
       continue;
     }
 
-    ctx.fillStyle = '#38bdf8';
-    ctx.fillRect(note.col * COL_WIDTH + 25, y, COL_WIDTH - 14, 16);
+    ctx.save();
+    ctx.globalAlpha = p.alpha;
+    ctx.fillStyle = p.color;
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
-
-  if (audioBuffer && currentTime > audioBuffer.duration) {
-    isPlaying = false;
-    alert(`遊戲結束！最終得分：${score}`);
-    return;
-  }
-
-  requestAnimationFrame(gameLoop);
 }
+
+// 啟動畫布渲染
+drawVisualizer();
